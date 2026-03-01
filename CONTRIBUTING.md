@@ -93,7 +93,7 @@ OpenClaw aims to be extensible while keeping the core maintainable. Before openi
 - Providers with dedicated OpenAI-compatible APIs but smaller user bases
 - Must demonstrate demand beyond a single contributor wanting it
 - Evidence can include:
-  - GitHub issue with community votes (typically 12+ supporters)
+  - GitHub issue with community votes.
   - Discord thread with multiple users requesting it
   - Regional or use-case necessity (e.g., Mistral for EU compliance)
 
