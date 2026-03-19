@@ -109,7 +109,8 @@ describe("registerPluginCommand", () => {
   });
 
   it("shares plugin commands across duplicated module instances", async () => {
-    const duplicateCommands = (await import("./commands.js?duplicate=1")) as {
+    const duplicateSpecifier = "./commands.js?duplicate=1";
+    const duplicateCommands = (await import(duplicateSpecifier)) as {
       clearPluginCommands: () => void;
       getPluginCommandSpecs: (provider?: string) => Array<{
         name: string;
