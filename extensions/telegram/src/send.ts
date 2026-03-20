@@ -41,6 +41,7 @@ import {
   parseTelegramTarget,
 } from "./targets.js";
 import { resolveTelegramVoiceSend } from "./voice.js";
+import { enqueueTelegramSend } from "./send-queue.js";
 
 type TelegramApi = Bot["api"];
 type TelegramApiOverride = Partial<TelegramApi>;
@@ -550,8 +551,10 @@ function createTelegramNonIdempotentRequestWithDiag(params: {
   retry?: RetryConfig;
   verbose?: boolean;
   useApiErrorLogging?: boolean;
+  /** When set, sends are serialized through a global per-account queue to prevent 429 spirals. */
+  queueAccountKey?: string;
 }): TelegramRequestWithDiag {
-  return createTelegramRequestWithDiag({
+  const base = createTelegramRequestWithDiag({
     cfg: params.cfg,
     account: params.account,
     retry: params.retry,
@@ -560,6 +563,12 @@ function createTelegramNonIdempotentRequestWithDiag(params: {
     shouldRetry: (err) => isSafeToRetrySendError(err),
     strictShouldRetry: true,
   });
+  if (!params.queueAccountKey) {
+    return base;
+  }
+  const queueAccountKey = params.queueAccountKey;
+  return <T>(fn: () => Promise<T>, label?: string, options?: { shouldLog?: (err: unknown) => boolean }): Promise<T> =>
+    enqueueTelegramSend(queueAccountKey, () => base(fn, label, options));
 }
 
 export function buildInlineKeyboard(
@@ -620,6 +629,7 @@ export async function sendMessageTelegram(
     account,
     retry: opts.retry,
     verbose: opts.verbose,
+    queueAccountKey: account.accountId,
   });
   const requestWithChatNotFound = createRequestWithChatNotFound({
     requestWithDiag,
@@ -1533,6 +1543,7 @@ export async function sendPollTelegram(
     account,
     retry: opts.retry,
     verbose: opts.verbose,
+    queueAccountKey: account.accountId,
   });
   const requestWithChatNotFound = createRequestWithChatNotFound({
     requestWithDiag,
@@ -1646,6 +1657,7 @@ export async function createForumTopicTelegram(
     account,
     retry: opts.retry,
     verbose: opts.verbose,
+    queueAccountKey: account.accountId,
   });
 
   const extra: Record<string, unknown> = {};
