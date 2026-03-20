@@ -27,6 +27,7 @@ import {
   normalizeMentions,
   parseMergeForwardContent,
   parseMessageContent,
+  resolveFeishuApplinks,
   resolveFeishuGroupSession,
   resolveFeishuMediaList,
   toMessageResourceType,
@@ -295,6 +296,9 @@ export async function handleFeishuMessage(params: {
       ctx = { ...ctx, content: "[Merged and Forwarded Message - fetch error]" };
     }
   }
+
+  // Resolve Feishu applinks (https://applink.feishu.cn/...) to their final redirect targets.
+  ctx = { ...ctx, content: await resolveFeishuApplinks(ctx.content) };
 
   // Resolve sender display name (best-effort) so the agent can attribute messages correctly.
   // Optimization: skip if disabled to save API quota (Feishu free tier limit).

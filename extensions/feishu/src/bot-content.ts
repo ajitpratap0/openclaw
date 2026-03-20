@@ -1,3 +1,6 @@
+import * as http from "http";
+import type { IncomingMessage } from "http";
+import * as https from "https";
 import type { ClawdbotConfig } from "../runtime-api.js";
 import { normalizeFeishuExternalKey } from "./external-keys.js";
 import { downloadMessageResourceFeishu } from "./media.js";
@@ -169,6 +172,52 @@ export function parseMessageContent(content: string, messageType: string): strin
   } catch {
     return content;
   }
+}
+
+function followApplinkRedirect(url: string, maxRedirects = 5): Promise<string> {
+  return new Promise((resolve) => {
+    const doRequest = (currentUrl: string, remaining: number) => {
+      if (remaining <= 0) {
+        resolve(currentUrl);
+        return;
+      }
+      const lib = currentUrl.startsWith("https:") ? https : http;
+      const req = lib.request(currentUrl, { method: "HEAD" }, (res: IncomingMessage) => {
+        const location = res.headers.location;
+        if (location && res.statusCode && res.statusCode >= 300 && res.statusCode < 400) {
+          const next = location.startsWith("http")
+            ? location
+            : new URL(location, currentUrl).href;
+          doRequest(next, remaining - 1);
+        } else {
+          resolve(currentUrl);
+        }
+      });
+      req.on("error", () => resolve(currentUrl));
+      req.end();
+    };
+    doRequest(url, maxRedirects);
+  });
+}
+
+export async function resolveFeishuApplinks(text: string): Promise<string> {
+  const applinkPattern = /https:\/\/applink\.feishu\.cn\/[^\s)>"']*/g;
+  const matches = [...text.matchAll(applinkPattern)];
+  if (matches.length === 0) return text;
+
+  const unique = [...new Set(matches.map((m) => m[0]))];
+  const resolved = new Map<string, string>();
+  await Promise.all(
+    unique.map(async (url) => {
+      const finalUrl = await followApplinkRedirect(url);
+      if (finalUrl !== url) {
+        resolved.set(url, finalUrl);
+      }
+    }),
+  );
+
+  if (resolved.size === 0) return text;
+  return text.replace(applinkPattern, (match) => resolved.get(match) ?? match);
 }
 
 function formatSubMessageContent(content: string, contentType: string): string {
