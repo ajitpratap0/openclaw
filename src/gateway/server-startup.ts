@@ -108,22 +108,10 @@ export async function startGatewaySidecars(params: {
     }
   }
 
-  // Load internal hook handlers from configuration and directory discovery.
-  try {
-    // Clear any previously registered hooks to ensure fresh loading
-    clearInternalHooks();
-    const loadedCount = await loadInternalHooks(params.cfg, params.defaultWorkspaceDir);
-    if (loadedCount > 0) {
-      params.logHooks.info(
-        `loaded ${loadedCount} internal hook handler${loadedCount > 1 ? "s" : ""}`,
-      );
-    }
-  } catch (err) {
-    params.logHooks.error(`failed to load hooks: ${String(err)}`);
-  }
-
-  // Launch configured channels so gateway replies via the surface the message came from.
-  // Tests can opt out via OPENCLAW_SKIP_CHANNELS (or legacy OPENCLAW_SKIP_PROVIDERS).
+  // Launch configured channels in the preinit phase (before hooks load) so that
+  // plugin webhook routes (e.g. BlueBubbles) are registered before any hook handlers
+  // fire.  This prevents a race where session-memory / boot-md hooks firing during
+  // gateway:startup interfere with HTTP route registration. (#50856)
   const skipChannels =
     isTruthyEnvValue(process.env.OPENCLAW_SKIP_CHANNELS) ||
     isTruthyEnvValue(process.env.OPENCLAW_SKIP_PROVIDERS);
@@ -137,6 +125,23 @@ export async function startGatewaySidecars(params: {
     params.logChannels.info(
       "skipping channel start (OPENCLAW_SKIP_CHANNELS=1 or OPENCLAW_SKIP_PROVIDERS=1)",
     );
+  }
+
+  // Load internal hook handlers from configuration and directory discovery.
+  // Hooks are loaded after channels start so that webhook routes registered
+  // during channel startup (gateway:preinit) are in place before any hook
+  // handlers can fire. (#50856)
+  try {
+    // Clear any previously registered hooks to ensure fresh loading
+    clearInternalHooks();
+    const loadedCount = await loadInternalHooks(params.cfg, params.defaultWorkspaceDir);
+    if (loadedCount > 0) {
+      params.logHooks.info(
+        `loaded ${loadedCount} internal hook handler${loadedCount > 1 ? "s" : ""}`,
+      );
+    }
+  } catch (err) {
+    params.logHooks.error(`failed to load hooks: ${String(err)}`);
   }
 
   if (params.cfg.hooks?.internal?.enabled) {
