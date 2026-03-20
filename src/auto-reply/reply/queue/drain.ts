@@ -82,11 +82,14 @@ export function scheduleFollowupDrain(
   void (async () => {
     try {
       const collectState = { forceIndividualCollect: false };
+      // Track items that have already been sent in this drain session to prevent
+      // duplicate delivery when items are re-visited across loop iterations.
+      const sentItems = new Set<FollowupRun>();
       while (queue.items.length > 0 || queue.droppedCount > 0) {
         await waitForQueueDebounce(queue);
         if (queue.mode === "collect") {
           // Once the batch is mixed, never collect again within this drain.
-          // Prevents “collect after shift” collapsing different targets.
+          // Prevents "collect after shift" collapsing different targets.
           //
           // Debug: `pnpm test src/auto-reply/reply/reply-flow.test.ts`
           // Check if messages span multiple channels.
@@ -97,7 +100,13 @@ export function scheduleFollowupDrain(
             collectState,
             isCrossChannel,
             items: queue.items,
-            run: runFollowup,
+            run: async (item) => {
+              if (sentItems.has(item)) {
+                return;
+              }
+              sentItems.add(item);
+              await runFollowup(item);
+            },
           });
           if (collectDrainResult === "empty") {
             break;
@@ -106,7 +115,15 @@ export function scheduleFollowupDrain(
             continue;
           }
 
-          const items = queue.items.slice();
+          // Snapshot all pending items and filter out any already sent to prevent
+          // duplicate delivery if the drain loop revisits the same items.
+          const snapshot = queue.items.slice();
+          const items = snapshot.filter((item) => !sentItems.has(item));
+          if (items.length === 0) {
+            // All pending items have already been sent; clear the queue.
+            queue.items.splice(0, snapshot.length);
+            break;
+          }
           const summary = previewQueueSummaryPrompt({ state: queue, noun: "message" });
           const run = items.at(-1)?.run ?? queue.lastRun;
           if (!run) {
@@ -121,13 +138,18 @@ export function scheduleFollowupDrain(
             summary,
             renderItem: (item, idx) => `---\nQueued #${idx + 1}\n${item.prompt}`.trim(),
           });
+          for (const item of items) {
+            sentItems.add(item);
+          }
           await runFollowup({
             prompt,
             run,
             enqueuedAt: Date.now(),
             ...routing,
           });
-          queue.items.splice(0, items.length);
+          // Remove all items in the snapshot (not just the filtered subset) since
+          // sent items from previous iterations are also tracked in sentItems.
+          queue.items.splice(0, snapshot.length);
           if (summary) {
             clearQueueSummaryState(queue);
           }
