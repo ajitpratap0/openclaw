@@ -71,6 +71,13 @@ function resolveCrossChannelKey(item: FollowupRun): { cross?: true; key?: string
 export function scheduleFollowupDrain(
   key: string,
   runFollowup: (run: FollowupRun) => Promise<void>,
+  /**
+   * Timestamp (ms) at which the current agent run started.
+   * Items enqueued *before* this time are considered stale (pre-existing context
+   * from a prior run) and will be dropped to prevent infinite replay loops.
+   * When undefined, no stale filtering is applied.
+   */
+  runStartedAt?: number,
 ): void {
   const queue = beginQueueDrain(FOLLOWUP_QUEUES, key);
   if (!queue) {
@@ -81,6 +88,17 @@ export function scheduleFollowupDrain(
   FOLLOWUP_RUN_CALLBACKS.set(key, runFollowup);
   void (async () => {
     try {
+      // Drop items that were enqueued before this run started. These are
+      // messages that already existed in the session context before the current
+      // turn began — replaying them would cause an infinite loop where the agent
+      // re-processes the previous task after completing it.
+      if (typeof runStartedAt === "number") {
+        const staleCount = queue.items.filter((item) => item.enqueuedAt <= runStartedAt).length;
+        if (staleCount > 0) {
+          queue.items = queue.items.filter((item) => item.enqueuedAt > runStartedAt);
+          defaultRuntime.log?.(`followup queue: dropped ${staleCount} stale item(s) for ${key} (enqueued before run started)`);
+        }
+      }
       const collectState = { forceIndividualCollect: false };
       while (queue.items.length > 0 || queue.droppedCount > 0) {
         await waitForQueueDebounce(queue);

@@ -58,8 +58,9 @@ export const finalizeWithFollowup = <T>(
   value: T,
   queueKey: string,
   runFollowupTurn: Parameters<typeof scheduleFollowupDrain>[1],
+  runStartedAt?: number,
 ): T => {
-  scheduleFollowupDrain(queueKey, runFollowupTurn);
+  scheduleFollowupDrain(queueKey, runFollowupTurn, runStartedAt);
   return value;
 };
 
