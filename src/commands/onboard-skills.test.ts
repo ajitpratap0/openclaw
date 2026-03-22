@@ -18,9 +18,13 @@ vi.mock("./onboard-helpers.js", () => ({
     { value: "bun", label: "bun" },
   ]),
 }));
+vi.mock("../infra/docker-env.js", () => ({
+  isRunningInDocker: vi.fn(() => false),
+}));
 
 import { installSkill } from "../agents/skills-install.js";
 import { buildWorkspaceSkillStatus } from "../agents/skills-status.js";
+import { isRunningInDocker } from "../infra/docker-env.js";
 import { detectBinary } from "./onboard-helpers.js";
 import { setupSkills } from "./onboard-skills.js";
 
@@ -181,5 +185,36 @@ describe("setupSkills", () => {
 
     const brewNote = notes.find((n) => n.title === "Homebrew recommended");
     expect(brewNote).toBeDefined();
+  });
+
+  it("shows Docker-specific note instead of Homebrew install when running in Docker", async () => {
+    if (process.platform === "win32") {
+      return;
+    }
+
+    vi.mocked(isRunningInDocker).mockReturnValue(true);
+
+    mockMissingBrewStatus([
+      createBundledSkill({
+        name: "video-frames",
+        description: "ffmpeg",
+        bins: ["ffmpeg"],
+        installLabel: "Install ffmpeg (brew)",
+      }),
+    ]);
+
+    const { prompter, notes } = createPrompter({ multiselect: ["video-frames"] });
+    await setupSkills({} as OpenClawConfig, "/tmp/ws", runtime, prompter);
+
+    // Should show Docker-specific note, not the generic Homebrew one
+    const dockerNote = notes.find((n) => n.title === "Homebrew unavailable in Docker");
+    expect(dockerNote).toBeDefined();
+    expect(dockerNote?.message).toContain("Docker container");
+
+    const brewNote = notes.find((n) => n.title === "Homebrew recommended");
+    expect(brewNote).toBeUndefined();
+
+    // Restore mock to default
+    vi.mocked(isRunningInDocker).mockReturnValue(false);
   });
 });

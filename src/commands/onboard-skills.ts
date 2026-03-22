@@ -2,6 +2,7 @@ import { installSkill } from "../agents/skills-install.js";
 import { buildWorkspaceSkillStatus } from "../agents/skills-status.js";
 import { formatCliCommand } from "../cli/command-format.js";
 import type { OpenClawConfig } from "../config/config.js";
+import { isRunningInDocker } from "../infra/docker-env.js";
 import type { RuntimeEnv } from "../runtime.js";
 import { normalizeSecretInput } from "../utils/normalize-secret-input.js";
 import type { WizardPrompter } from "../wizard/prompts.js";
@@ -114,25 +115,38 @@ export async function setupSkills(
       !(await detectBinary("brew"));
 
     if (needsBrewPrompt) {
-      await prompter.note(
-        [
-          "Many skill dependencies are shipped via Homebrew.",
-          "Without brew, you'll need to build from source or download releases manually.",
-        ].join("\n"),
-        "Homebrew recommended",
-      );
-      const showBrewInstall = await prompter.confirm({
-        message: "Show Homebrew install command?",
-        initialValue: true,
-      });
-      if (showBrewInstall) {
+      if (isRunningInDocker()) {
+        // In Docker containers Homebrew is not available and cannot be easily
+        // installed. Guide the user toward system package managers instead.
         await prompter.note(
           [
-            "Run:",
-            '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
+            "Running inside a Docker container — Homebrew is not available here.",
+            "Install brew-backed skill dependencies via your system package manager",
+            "(e.g. apt-get, dnf, pacman) or use a custom image that includes them.",
           ].join("\n"),
-          "Homebrew install",
+          "Homebrew unavailable in Docker",
         );
+      } else {
+        await prompter.note(
+          [
+            "Many skill dependencies are shipped via Homebrew.",
+            "Without brew, you'll need to build from source or download releases manually.",
+          ].join("\n"),
+          "Homebrew recommended",
+        );
+        const showBrewInstall = await prompter.confirm({
+          message: "Show Homebrew install command?",
+          initialValue: true,
+        });
+        if (showBrewInstall) {
+          await prompter.note(
+            [
+              "Run:",
+              '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
+            ].join("\n"),
+            "Homebrew install",
+          );
+        }
       }
     }
 
