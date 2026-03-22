@@ -388,7 +388,7 @@ describe("loginGeminiCliOAuth", () => {
     const clientMetadata = getHeaderValue(firstHeaders, "Client-Metadata");
     expect(clientMetadata).toBeDefined();
     expect(JSON.parse(clientMetadata as string)).toEqual({
-      ideType: "ANTIGRAVITY",
+      ideType: "IDE_UNSPECIFIED",
       platform: getExpectedPlatform(),
       pluginType: "GEMINI",
     });
@@ -396,11 +396,54 @@ describe("loginGeminiCliOAuth", () => {
     const body = JSON.parse(String(loadRequests[0]?.init?.body));
     expect(body).toEqual({
       metadata: {
-        ideType: "ANTIGRAVITY",
+        ideType: "IDE_UNSPECIFIED",
         platform: getExpectedPlatform(),
         pluginType: "GEMINI",
       },
     });
+  });
+
+  it("sends IDE_UNSPECIFIED as ideType in loadCodeAssist body and Client-Metadata header", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = getRequestUrl(input);
+      requests.push({ url, init });
+
+      if (url === TOKEN_URL) {
+        return responseJson({
+          access_token: "access-token",
+          refresh_token: "refresh-token",
+          expires_in: 3600,
+        });
+      }
+      if (url === USERINFO_URL) {
+        return responseJson({ email: "lobster@openclaw.ai" });
+      }
+      if (url === LOAD_PROD) {
+        return responseJson({
+          currentTier: { id: "standard-tier" },
+          cloudaicompanionProject: { id: "prod-project" },
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { loginGeminiCliOAuth } = await import("./oauth.js");
+    await runRemoteLoginExpectingProjectId(loginGeminiCliOAuth, "prod-project");
+
+    const loadRequest = requests.find((r) => r.url.includes("v1internal:loadCodeAssist"));
+    expect(loadRequest).toBeDefined();
+
+    // Verify Client-Metadata header uses IDE_UNSPECIFIED (not ANTIGRAVITY)
+    const clientMetadata = getHeaderValue(loadRequest?.init?.headers, "Client-Metadata");
+    expect(clientMetadata).toBeDefined();
+    const parsedMeta = JSON.parse(clientMetadata as string);
+    expect(parsedMeta.ideType).toBe("IDE_UNSPECIFIED");
+
+    // Verify request body uses IDE_UNSPECIFIED
+    const body = JSON.parse(String(loadRequest?.init?.body));
+    expect(body.metadata.ideType).toBe("IDE_UNSPECIFIED");
   });
 
   it("falls back to GOOGLE_CLOUD_PROJECT when all loadCodeAssist endpoints fail", async () => {

@@ -99,7 +99,9 @@ async function discoverProject(accessToken: string): Promise<string> {
   const envProject = process.env.GOOGLE_CLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT_ID;
   const platform = resolvePlatform();
   const metadata = {
-    ideType: "ANTIGRAVITY",
+    // IDE_UNSPECIFIED is the correct enum value accepted by the Cloud Code Assist API.
+    // Using any other string (e.g. "ANTIGRAVITY") causes a 400 Bad Request.
+    ideType: "IDE_UNSPECIFIED",
     platform,
     pluginType: "GEMINI",
   };
