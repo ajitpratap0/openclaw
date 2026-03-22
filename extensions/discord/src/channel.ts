@@ -705,7 +705,9 @@ export const discordPlugin: ChannelPlugin<ResolvedDiscordAccount> = {
       });
     },
     stopAccount: async (ctx) => {
-      const accountId = ctx.accountId;
+      // Normalize the account ID the same way startAccount does (via resolveDiscordAccount),
+      // because gateways are registered under the normalized ID.
+      const accountId = resolveDiscordAccount({ cfg: ctx.cfg, accountId: ctx.accountId }).accountId;
       const gateway = getGateway(accountId);
       if (gateway) {
         try {
