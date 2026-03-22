@@ -1,4 +1,4 @@
-import type { AnyMessageContent, proto, WAMessage } from "@whiskeysockets/baileys";
+import type { AnyMessageContent, MiscMessageGenerationOptions, proto, WAMessage } from "@whiskeysockets/baileys";
 import { DisconnectReason, isJidGroup } from "@whiskeysockets/baileys";
 import { createInboundDebouncer, formatLocationText } from "openclaw/plugin-sdk/channel-inbound";
 import { recordChannelActivity } from "openclaw/plugin-sdk/infra-runtime";
@@ -214,7 +214,10 @@ export async function monitorWebInbox(options: {
       isFromMe: Boolean(msg.key?.fromMe),
       messageTimestampMs,
       connectedAtMs,
-      sock: { sendMessage: (jid, content) => sock.sendMessage(jid, content) },
+      sock: {
+        sendMessage: (jid: string, content: AnyMessageContent, options?: MiscMessageGenerationOptions) =>
+          options ? sock.sendMessage(jid, content, options) : sock.sendMessage(jid, content),
+      },
       remoteJid,
     });
     if (!access.allowed) {
@@ -452,7 +455,8 @@ export async function monitorWebInbox(options: {
 
   const sendApi = createWebSendApi({
     sock: {
-      sendMessage: (jid: string, content: AnyMessageContent) => sock.sendMessage(jid, content),
+      sendMessage: (jid: string, content: AnyMessageContent, options?: MiscMessageGenerationOptions) =>
+        options ? sock.sendMessage(jid, content, options) : sock.sendMessage(jid, content),
       sendPresenceUpdate: (presence, jid?: string) => sock.sendPresenceUpdate(presence, jid),
     },
     defaultAccountId: options.accountId,
