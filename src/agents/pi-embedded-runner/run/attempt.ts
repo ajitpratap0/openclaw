@@ -1679,16 +1679,29 @@ export async function runEmbeddedAttempt(
       workspaceDir: effectiveWorkspace,
     });
 
+    // Resolve agentDir early so it can be passed to bootstrap resolution (#29387).
+    const agentDir = params.agentDir ?? resolveOpenClawAgentDir();
+
+    // Pre-check whether a session file already exists so we can skip re-injecting workspace
+    // bootstrap files on subsequent turns — they are already present in the session history
+    // and re-injecting them wastes tokens on every message turn (#9157).
+    const isSubsequentTurn = await fs
+      .stat(params.sessionFile)
+      .then(() => true)
+      .catch(() => false);
+
     const sessionLabel = params.sessionKey ?? params.sessionId;
     const { bootstrapFiles: hookAdjustedBootstrapFiles, contextFiles } =
       await resolveBootstrapContextForRun({
         workspaceDir: effectiveWorkspace,
+        agentDir,
         config: params.config,
         sessionKey: params.sessionKey,
         sessionId: params.sessionId,
         warn: makeBootstrapWarn({ sessionLabel, warn: (message) => log.warn(message) }),
         contextMode: params.bootstrapContextMode,
         runKind: params.bootstrapContextRunKind,
+        isSubsequentTurn,
       });
     const bootstrapMaxChars = resolveBootstrapMaxChars(params.config);
     const bootstrapTotalMaxChars = resolveBootstrapTotalMaxChars(params.config);
@@ -1712,8 +1725,6 @@ export async function runEmbeddedAttempt(
     )
       ? ["Reminder: commit your changes in this workspace after edits."]
       : undefined;
-
-    const agentDir = params.agentDir ?? resolveOpenClawAgentDir();
 
     const { defaultAgentId, sessionAgentId } = resolveSessionAgentIds({
       sessionKey: params.sessionKey,

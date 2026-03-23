@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   clearInternalHooks,
   registerInternalHook,
@@ -125,5 +126,97 @@ describe("resolveBootstrapContextForRun", () => {
     });
 
     expect(files).toEqual([]);
+  });
+
+  it("returns empty contextFiles when isSubsequentTurn is true (skip re-injection)", async () => {
+    const workspaceDir = await makeTempWorkspace("openclaw-bootstrap-subsequent-");
+    await fs.writeFile(path.join(workspaceDir, "AGENTS.md"), "agents content", "utf8");
+
+    const result = await resolveBootstrapContextForRun({
+      workspaceDir,
+      isSubsequentTurn: true,
+    });
+
+    // bootstrapFiles should still be populated for stats/analysis
+    expect(result.bootstrapFiles.some((f) => f.name === "AGENTS.md")).toBe(true);
+    // contextFiles must be empty — no re-injection on subsequent turns
+    expect(result.contextFiles).toEqual([]);
+  });
+
+  it("returns contextFiles normally when isSubsequentTurn is false (first turn)", async () => {
+    const workspaceDir = await makeTempWorkspace("openclaw-bootstrap-first-turn-");
+    await fs.writeFile(path.join(workspaceDir, "AGENTS.md"), "agents content", "utf8");
+
+    const result = await resolveBootstrapContextForRun({
+      workspaceDir,
+      isSubsequentTurn: false,
+    });
+
+    expect(result.contextFiles.some((f) => f.path.endsWith("AGENTS.md"))).toBe(true);
+  });
+});
+
+describe("resolveBootstrapFilesForRun — agentDir", () => {
+  let tempRoot: string;
+
+  beforeAll(async () => {
+    tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-bootstrap-agentdir-"));
+  });
+
+  afterAll(async () => {
+    if (tempRoot) {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("includes agentDir AGENTS.md when it differs from workspaceDir", async () => {
+    const workspaceDir = path.join(tempRoot, "workspace-1");
+    const agentDir = path.join(tempRoot, "agent-1");
+    await fs.mkdir(workspaceDir, { recursive: true });
+    await fs.mkdir(agentDir, { recursive: true });
+    await fs.writeFile(path.join(agentDir, "AGENTS.md"), "agent-specific rules", "utf8");
+
+    const files = await resolveBootstrapFilesForRun({ workspaceDir, agentDir });
+
+    const agentFile = files.find(
+      (f) => f.name === "AGENTS.md" && f.path === path.join(agentDir, "AGENTS.md"),
+    );
+    expect(agentFile).toBeDefined();
+    expect(agentFile?.content).toBe("agent-specific rules");
+    expect(agentFile?.missing).toBe(false);
+  });
+
+  it("agentDir AGENTS.md takes priority over workspaceDir AGENTS.md on name collision", async () => {
+    const workspaceDir = path.join(tempRoot, "workspace-2");
+    const agentDir = path.join(tempRoot, "agent-2");
+    await fs.mkdir(workspaceDir, { recursive: true });
+    await fs.mkdir(agentDir, { recursive: true });
+    await fs.writeFile(path.join(workspaceDir, "AGENTS.md"), "workspace rules", "utf8");
+    await fs.writeFile(path.join(agentDir, "AGENTS.md"), "agent rules override", "utf8");
+
+    const files = await resolveBootstrapFilesForRun({ workspaceDir, agentDir });
+
+    const agentsMd = files.filter((f) => f.name === "AGENTS.md" && !f.missing);
+    // Only one AGENTS.md should appear (agentDir version wins)
+    expect(agentsMd).toHaveLength(1);
+    expect(agentsMd[0]?.content).toBe("agent rules override");
+    expect(agentsMd[0]?.path).toBe(path.join(agentDir, "AGENTS.md"));
+  });
+
+  it("skips agentDir lookup when agentDir equals workspaceDir", async () => {
+    const workspaceDir = path.join(tempRoot, "workspace-same");
+    await fs.mkdir(workspaceDir, { recursive: true });
+    await fs.writeFile(path.join(workspaceDir, "AGENTS.md"), "same dir content", "utf8");
+
+    const filesWithSameDir = await resolveBootstrapFilesForRun({
+      workspaceDir,
+      agentDir: workspaceDir,
+    });
+    const filesWithoutAgentDir = await resolveBootstrapFilesForRun({ workspaceDir });
+
+    // Same result when agentDir === workspaceDir
+    expect(filesWithSameDir.filter((f) => f.name === "AGENTS.md" && !f.missing)).toHaveLength(
+      filesWithoutAgentDir.filter((f) => f.name === "AGENTS.md" && !f.missing).length,
+    );
   });
 });
